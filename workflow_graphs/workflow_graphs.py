@@ -8,6 +8,7 @@ class WorkflowGraph(object):
         self.root = root
         self.current_executing_action = root
         self.action_adding_stack = []  # For building workflows.
+        self.labels_map = dict()
 
     @property
     def currently_building_decision(self):
@@ -39,6 +40,22 @@ class WorkflowGraph(object):
         information!")
         self.root = first_action
         self.action_adding_stack.append(self.root)
+
+    @cascade
+    def call_that_step(self,label):
+        self.labels_map[label] = self.action_adding_stack[-1]
+
+    @cascade
+    def move_to_step_called(self, label):
+        def set_correct_action(ctx, actor, env):
+            self.current_executing_action = self.labels_map[label]
+
+            # We need to set the action to whatever came *before* the label, because after running the action we make from
+            # this function, we move forward one step.
+            self.current_executing_action = self.current_executing_action.previous_action
+            # TODO THIS WILL CERTAINLY HAVE A BUG. WHAT IF THE PREVIOUS ACTION IS A DECISION? WHAT IF THERE COULD BE
+            # MULTIPLE PREVIOUS STEPS?
+        self.then(Action())
 
     @cascade
     def then(self, next_action):
