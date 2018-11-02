@@ -18,6 +18,9 @@ class WorkflowGraph(object):
         self.decision_case_mapping = dict()  # A dictionary of lists of tuples. decision node -> [(case -> next action)]
         self.condition_to_build_decision_path_with = None
 
+    def __call__(self, *args, **kwargs):
+        return self.run_workflow(*args, **kwargs)
+
     @property
     def currently_building_decision(self):
         return type(self.action_adding_stack[-1]) == Decision
@@ -42,12 +45,37 @@ class WorkflowGraph(object):
         if self.root is None:
             raise NoCurrentActionException("Workflow made but no actions ever provided.")
 
+        # ===== SETUP =====
+
+        # Certain things need to be set up in the context. Let's do that now.
+
+        # We keep a stack of points that sub-workflows can join to. By default, if a workflow is constructed and there's
+        # no explicit end, then we `End` for them, so initialise the stack with this at the base.
+        # That means that THIS workflow should just end if it has nothing else to do.
+        if "__join_point_stack" not in context.keys():
+            context["__join_point_stack"] = [End]
+
         self.current_executing_action = self.root
+
+        # ===== RUNNING =====
 
         while not self.finished_executing:
             self.current_executing_action.execute(context, actor, WorkflowGraph.environment)
             if not self.dont_jump:
                 self.current_executing_action = self.current_executing_action.next_action
+
+                # Check to see whether we need to collapse a sub-workflow.
+                # If we do, then we have to take its _root_ as the next action,
+                # and give it the right place to join back to.
+                if type(self.current_executing_action) == WorkflowGraph:
+                    context["__join_point_stack"].append(self.current_executing_action.next_action)
+                    self.current_executing_action = self.current_executing_action.root
+
+                # If this action has _no_ next action set up, pop the top of the jump stack and give it to the node.
+                if self.current_executing_action.next_action is None:
+                    self.current_executing_action = context["__join_point_stack"].pop()
+
+            # TODO I think jumping is REALLY going to mess up my join point stack. Work out how to fix this.
             else:
                 self.dont_jump = False
 
@@ -150,3 +178,4 @@ class WorkflowGraph(object):
 
 End = EndNode()
 anything_else = EqualToAnything()
+do_nothing = Idle()
