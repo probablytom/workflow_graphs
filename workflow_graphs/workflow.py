@@ -150,3 +150,4 @@ class WorkflowGraph(object):
 
 End = EndNode()
 anything_else = EqualToAnything()
+do_nothing = Idle()

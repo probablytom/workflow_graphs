@@ -113,6 +113,9 @@ class JoinNode(DummyAction):
     pass
 
 
+class Idle(DummyAction):
+    pass
+
 class NoCurrentActionException(Exception):
     pass
 
