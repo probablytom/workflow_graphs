@@ -9,8 +9,10 @@ class WorkflowGraph(object):
 
     def __init__(self):
         self.graph = []
+        self.__action_currently_executing = None  # The index of the action currently being executed
         self.label_action_mapping = dict()
         self.decision_building_stack = list()
+        self.position_of_last_action = None
         self.__literal_last_action_added = None
 
     @property
@@ -28,6 +30,10 @@ class WorkflowGraph(object):
             self.decision_building_stack[-1]["cases"][-1].append(next_action)
 
         self.__literal_last_action_added = next_action
+        if self.position_of_last_action is not None:
+            self.position_of_last_action[-1] += 1
+        else:
+            self.position_of_last_action = [0]
 
     @cascade
     def decide_on(self, condition):
@@ -38,6 +44,7 @@ class WorkflowGraph(object):
     @cascade
     def when(self, case):
         self.decision_building_stack[-1]["cases"].append([case])
+        self.position_of_last_action[-1] = case
 
     @cascade
     def begin_with(self, first_action):
@@ -46,18 +53,19 @@ class WorkflowGraph(object):
     @cascade
     def join(self):
         fully_built_decision = self.decision_building_stack.pop()
+        self.position_of_last_action = self.position_of_last_action[:-2]  # So that self.then can increment position
         self.then(fully_built_decision)
 
     @cascade
     def move_to_step_called(self, label):
         def move_step(ctx, actor, environment):
-            self.current_executing_action = self.label_action_mapping[label]
+            self.__action_currently_executing = self.label_action_mapping[label]
             return
         self.then(move_step)
 
     @cascade
     def call_that_step(self, label):
-        self.label_action_mapping[label] = self.__literal_last_action_added
+        self.label_action_mapping[label] = self.position_of_last_action
 
     def run_workflow(self, ctx, actor):
 
