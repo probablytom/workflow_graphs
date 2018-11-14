@@ -11,22 +11,33 @@ class WorkflowGraph(object):
         self.graph = []
         self.label_action_mapping = dict()
         self.decision_building_stack = list()
+        self.__literal_last_action_added = None
+
+    @property
+    def __currently_building_a_decision(self):
+        return len(self.decision_building_stack) is not 0
 
     @cascade
     def then(self, next_action):
+
         next_action = convert_functions_to_actions(next_action)
-        self.graph.append(next_action)
-        # next_action = convert_functions_to_actions(next_action)  # If we're passed something other than an Action, convert it if possible.
-        # self.graph[self.current_action_being_built] = next_action
-        # self.current_action_being_built = next_action
+
+        if not self.__currently_building_a_decision:
+            self.graph.append(next_action)
+        else:
+            self.decision_building_stack[-1]["cases"][-1].append(next_action)
+
+        self.__literal_last_action_added = next_action
 
     @cascade
     def decide_on(self, condition):
-        pass
+        new_decision = {"condition_function": condition,
+                        "cases":              list()}
+        self.decision_building_stack.append(new_decision)
 
     @cascade
     def when(self, case):
-        pass
+        self.decision_building_stack[-1]["cases"].append([case])
 
     @cascade
     def begin_with(self, first_action):
@@ -34,7 +45,8 @@ class WorkflowGraph(object):
 
     @cascade
     def join(self):
-        pass
+        fully_built_decision = self.decision_building_stack.pop()
+        self.then(fully_built_decision)
 
     @cascade
     def move_to_step_called(self, label):
@@ -45,7 +57,7 @@ class WorkflowGraph(object):
 
     @cascade
     def call_that_step(self, label):
-        self.label_action_mapping[label] = self.current_action_being_built
+        self.label_action_mapping[label] = self.__literal_last_action_added
 
     def run_workflow(self, ctx, actor):
 
