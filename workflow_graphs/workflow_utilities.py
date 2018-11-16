@@ -89,6 +89,10 @@ class NoCaseException(Exception):
     pass
 
 
+class CouldNotParseIndexException(Exception):
+    pass
+
+
 class EqualToAnything(object):
     def __eq__(self, other):
         return True
