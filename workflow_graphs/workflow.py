@@ -1,153 +1,173 @@
-from workflow_utilities import *
-from types import FunctionType
-
+from .workflow_utilities import *
+from types import FunctionType, DictionaryType, ListType
+from copy import copy, deepcopy
+from Queue import Queue
 
 class WorkflowGraph(object):
 
-    environment = dict()
+    environment = dict()  # An environment global to all workflows.
 
-    def __init__(self, root=None):
-        self.flow = []
-        self.ended = False
-        self.dont_jump = False
-        self.root = root
-        self.current_executing_action = root
-        self.action_adding_stack = []  # For building workflows.
-        self.decision_adding_stack = []
-        self.labels_map = dict()
-        self.decision_case_mapping = dict()  # A dictionary of lists of tuples. decision node -> [(case -> next action)]
-        self.condition_to_build_decision_path_with = None
+    def __init__(self):
+        self.graph = []
+        self.just_jumped = False
+        self.action_currently_executing = None  # The index of the action currently being executed
+        self.label_action_mapping = {}
+        self.decision_building_stack = list()
 
     @property
-    def currently_building_decision(self):
-        return type(self.action_adding_stack[-1]) == Decision
+    def __currently_building_a_decision(self):
+        return len(self.decision_building_stack) is not 0
 
     @property
-    def finished_executing(self):
-        return type(self.current_executing_action) == EndNode
+    def __last_action_added(self):
+        activity = self.graph
+        activity = activity[-1]
 
-    @property
-    def decision_currently_being_built(self):
-        if len(self.decision_adding_stack) == 0:
-            return None
+        # If we have nested decisions, this should take care of them.
+        while type(activity) is dict:
+            activity = activity["cases"][-1][-1]
 
-        return self.decision_adding_stack[-1]
+        return activity
 
-    def run_workflow(self, context=dict(), actor=dict()):
-        '''
-        Runs a workflow.
-        '''
-        # Check to see whether there are any actions set up to run. We can't
-        # run anything if we don't have anything set up!
-        if self.root is None:
-            raise NoCurrentActionException("Workflow made but no actions ever provided.")
-
-        self.current_executing_action = self.root
-
-        while not self.finished_executing:
-            self.current_executing_action.execute(context, actor, WorkflowGraph.environment)
-            if not self.dont_jump:
-                self.current_executing_action = self.current_executing_action.next_action
-            else:
-                self.dont_jump = False
-
-    @cascade
-    def begin_with(self, first_action):
-        if self.root is not None:
-            raise BadWorkflowFormation("Already got somewhere to begin, but being given a second entrypoint! Conflicting\
-        information!")
-
-        if type(first_action) == FunctionType:
-            first_action = Action(first_action)
-
-        self.root = first_action
-        self.action_adding_stack.append(self.root)
-
-    @cascade
-    def call_that_step(self,label):
-        self.labels_map[label] = self.action_adding_stack[-1]
-
-    @cascade
-    def move_to_step_called(self, label):
-        def set_correct_action(ctx, actor, env):
-            self.current_executing_action = self.labels_map[label]
-            self.dont_jump = True
-
-        self.then(set_correct_action)
+    def __last_action_index(self):
+        last_action = [len(self.graph)-1]
+        while type(self.at_index(last_action)) is dict:
+            last_action.append(self.at_index(last_action)["cases"][-1][0])
+            last_action.append(len(self.at_index(last_action)["cases"][-1]) - 2)
+        return last_action
 
     @cascade
     def then(self, next_action):
 
-        if type(next_action) == FunctionType:
-            next_action = Action(next_action)
+        next_action = convert_functions_to_actions(next_action)
 
-        # Just in case we're building a new path on a decision node
-        if self.condition_to_build_decision_path_with is not None:
-
-            curr_case_list = self.decision_case_mapping[self.decision_currently_being_built]
-            curr_case_list.append((self.condition_to_build_decision_path_with, next_action))
-            self.action_adding_stack.pop()
-            self.action_adding_stack.append(next_action)  # We do this manually so as not to set previous actions.
-
-            self.condition_to_build_decision_path_with = None
-            return  # We're done; exit, we don't care about the rest.
-
-
-        # Make sure we have something to happen previous to this! Semantically that's essential.
-        if len(self.action_adding_stack) == 0:
-            raise BadWorkflowFormation("Asked to do something after something else with 'then', but I hold no\
-        information about what happened before!")
-
-        # Set the next action
-        curr = self.action_adding_stack.pop()
-        curr.set_next_action(next_action)
-
-        self.action_adding_stack.append(next_action)
+        if not self.__currently_building_a_decision:
+            self.graph.append(next_action)
+        else:
+            self.decision_building_stack[-1]["cases"][-1].append(next_action)
 
     @cascade
-    def decide_on(self, condition_function):
-        def decision_action_function(ctx, actor, env):
-
-            for case, path in self.decision_case_mapping[self.current_executing_action]:
-                if condition_function(ctx, actor, env) == case:
-                    self.current_executing_action = path
-                    self.dont_jump = True
-                    return
-
-            # We didn't return, which means we must have to take the default action.
-            raise NotImplemented("Need to implement logic for default actions.")
-
-        # We have a function which represents our decision. Now, we set up an action for it...
-        # ...which can sit in our workflow.
-        decision_action = Action(decision_action_function)
-        self.decision_adding_stack.append(decision_action)
-        self.decision_case_mapping[decision_action] = list()
-        self.then(decision_action)
+    def decide_on(self, condition):
+        new_decision = {"condition_function": condition,
+                        "cases":              list()}
+        self.decision_building_stack.append(new_decision)
 
     @cascade
-    def when(self, cond):
-        self.condition_to_build_decision_path_with = cond
+    def when(self, case):
+        self.decision_building_stack[-1]["cases"].append([case])
+
+    @cascade
+    def begin_with(self, first_action):
+        self.then(first_action)
 
     @cascade
     def join(self):
-        decision_being_built = self.decision_adding_stack.pop()  # We get it manually to take it off the stack, too.
-        join_for_decision = JoinNode()
+        fully_built_decision = self.decision_building_stack.pop()
+        self.then(fully_built_decision)
 
-        #
-        def find_end_of_path(curr):
-            while curr.next_action is not None:
-                curr = curr.next_action
-            return curr
+    @cascade
+    def move_to_step_called(self, label):
+        def move_step(ctx, actor, environment):
+            # Without making a copy, Python actually makes the value in the dictionary here
+            # a reference to self.action_currently_executing.
+            # I have no idea why, it's _bananas_, but it took me a solid day and a half to debug. Don't remove the copy!
+            self.action_currently_executing = copy(self.label_action_mapping[label])
+            self.just_jumped = True
+            return
+        self.then(move_step)
 
-        # If a path doesn't end with an EndNode, then join back to the end of the decision by default.
-        for _, path in self.decision_case_mapping[decision_being_built]:
-            end_of_path = find_end_of_path(path)
-            if end_of_path != End:
-                end_of_path.set_next_action(join_for_decision)
+    @cascade
+    def call_that_step(self, label):
+        self.label_action_mapping[label] = self.__last_action_index()
+        pass
 
-        self.then(join_for_decision)
+    # For code reuse, because we navigate the graph by index lots!
+    def at_index(self, index):
+        # Get the action currently being executed
+        index = copy(index)
+        graph = copy(self.graph)
+        index.reverse()  # Now we can treat it like a stack
+        try:
+            while len(index) is not 0:
+                if type(graph) is list:
+                    graph = graph[index.pop()]
+                elif type(graph) is dict:
+                    case_to_match = index.pop()
+                    position_in_case_path = index.pop()
+                    path_found = False
+                    for path_to_check in graph["cases"]:
+                        case_for_path_to_check = path_to_check[0]
+                        path = path_to_check[1:]
+                        if not path_found and case_for_path_to_check == case_to_match:
+                            path_found = True
+                            graph = path[position_in_case_path]
 
+                else:
+                    raise NotImplemented()  # What do now?
+        except:
+            return CouldNotParseIndexException()
+
+        return graph
+
+    def run_workflow(self, ctx, actor):
+
+        self.action_currently_executing = [0]  # Begin at the beginning of the graph!
+
+        # Keep traversing while we haven't reached the end of the graph
+        while self.action_currently_executing[0] < len(self.graph)\
+                and type(self.at_index(self.action_currently_executing)) is not EndNode:
+
+            curr_action = self.at_index(self.action_currently_executing)
+
+            # If we've got to a decision or a subworkflow, resolve so we end up at an Action again.
+            while type(curr_action) is not Action:
+
+                if type(curr_action) is list:
+                    self.action_currently_executing.append(0)
+
+                if type(curr_action) is dict:
+                    condition_func = curr_action["condition_function"]
+                    case = condition_func(ctx, actor, WorkflowGraph.environment)
+                    matched_yet = False
+
+                    for case_path in curr_action["cases"]:
+                        if not matched_yet and case == case_path[0]:
+                            matched_yet = True
+                            self.action_currently_executing.append(case)
+                            self.action_currently_executing.append(0)
+
+                curr_action = self.at_index(self.action_currently_executing)
+
+            # Execute the action found. "graph" should now be an Action node.
+            curr_action(ctx, actor, WorkflowGraph.environment)
+
+            # If we haven't just jumped, then increment the index.
+            if not self.just_jumped:
+                self.action_currently_executing[-1] += 1
+
+                finished_yet = lambda: type(self.at_index(self.action_currently_executing)) is not CouldNotParseIndexException
+
+                while not finished_yet():
+                    self.action_currently_executing.pop()
+                    if type(self.action_currently_executing[-1]) is not int:
+                        self.action_currently_executing.pop()
+                    self.action_currently_executing[-1] += 1
+
+            else:
+                self.just_jumped = False  # reset the flag
+
+        pass
+
+
+def convert_functions_to_actions(action):
+    # Convert functions to Actions
+    if type(action) is FunctionType:
+        action = Action(action)
+
+    # Any conversions necessary should have taken place by now.
+    return action
 
 End = EndNode()
+do_nothing = Idle()
 anything_else = EqualToAnything()
 do_nothing = Idle()

@@ -1,4 +1,5 @@
 import unittest
+from asp import AdviceBuilder
 from workflow_graphs import WorkflowGraph, End, anything_else
 
 
@@ -61,12 +62,12 @@ class TestBasicFlows(unittest.TestCase):
 
         self.assertEqual(ctx["value_was_equal_to_2"], "yes!")
 
-
     def test_labelling_on_flows(self):
         flow = WorkflowGraph()
 
         # The actual workflow! Set an initial value of 1, and increment it (labelling the incrementing node)
         flow.begin_with(add_value_to_ctx(1)) \
+            .then(write_to_context("value_was_equal_to_5", "unknown")) \
             .then(add_one_to_value) \
             .call_that_step("incrementing") \
 
@@ -86,4 +87,18 @@ class TestBasicFlows(unittest.TestCase):
         flow.run_workflow(ctx, actor)
 
         self.assertEqual(ctx["value_was_equal_to_5"], "yes!")
+
+
+class TestFuzzing(unittest.TestCase):
+    def test_asp_fuzzing(self):
+        def before():
+            pass
+
+
+        builder = AdviceBuilder()
+
+    def test_pdsf_fuzzing(self):
+        pass
+
+
 
