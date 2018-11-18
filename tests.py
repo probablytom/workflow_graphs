@@ -1,6 +1,7 @@
 import unittest
 from asp import AdviceBuilder
-from workflow_graphs import WorkflowGraph, End, anything_else
+from workflow_graphs import WorkflowGraph, End, anything_else, do_nothing
+from workflow_graphs.workflow_utilities import Action
 
 
 # Kipple that would live somewhere else in the final product
@@ -88,17 +89,54 @@ class TestBasicFlows(unittest.TestCase):
 
         self.assertEqual(ctx["value_was_equal_to_5"], "yes!")
 
+    def test_subworkflow(self):
 
-class TestFuzzing(unittest.TestCase):
-    def test_asp_fuzzing(self):
-        def before():
-            pass
+        subflow = WorkflowGraph()
+        subflow.begin_with(add_one_to_value).then(add_one_to_value)
+
+        flow = WorkflowGraph()
+        flow.begin_with(add_value_to_ctx(1)) \
+            .then(subflow) \
+            .then(End)
+
+        ctx = dict()
+        actor = dict()
+        flow.run_workflow(ctx, actor)
+
+        self.assertEqual(ctx["stored_value"], 3)
 
 
-        builder = AdviceBuilder()
+class TestWorkflowGraphMethods(unittest.TestCase):
 
-    def test_pdsf_fuzzing(self):
-        pass
+    def test_simple_index_of(self):
+
+        flow = WorkflowGraph()
+        add_one_action = Action(add_one_to_value)
+        flow.begin_with(add_value_to_ctx(1)) \
+            .then(add_one_action) \
+            .then(End)
+
+        self.assertEqual(flow.index_of(add_one_action), [1])
+
+    def test_complex_index_of(self):
+
+        action_to_find = Action(add_one_to_value)
+
+        subflow = WorkflowGraph()
+        subflow.begin_with(add_one_to_value).then(action_to_find)
+
+        flow = WorkflowGraph()
+        flow.begin_with(add_value_to_ctx(1)) \
+            .decide_on(value_in_context("stored_value")) \
+            .when(1).then(subflow) \
+            .when(anything_else).then(do_nothing) \
+            .join()
+
+        flow.then(End)
+
+        # [1, 1, 0, 1] because index should represent decision, case 1, enter subflow, second subflow step
+        self.assertEqual(flow.index_of(action_to_find), [1, 1, 0, 1])
+
 
 
 

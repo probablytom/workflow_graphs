@@ -1,7 +1,7 @@
 from .workflow_utilities import *
-from types import FunctionType, DictionaryType, ListType
-from copy import copy, deepcopy
-from Queue import Queue
+from types import FunctionType
+from copy import copy
+
 
 class WorkflowGraph(object):
 
@@ -24,22 +24,55 @@ class WorkflowGraph(object):
         activity = activity[-1]
 
         # If we have nested decisions, this should take care of them.
-        while type(activity) is dict:
-            activity = activity["cases"][-1][-1]
+        while type(activity) is dict or type(activity) is list:
+            if type(activity) is list:
+                activity = activity[-1]
+            else:
+                activity = activity["cases"][-1][-1]
 
         return activity
 
-    def __last_action_index(self):
-        last_action = [len(self.graph)-1]
-        while type(self.at_index(last_action)) is dict:
-            last_action.append(self.at_index(last_action)["cases"][-1][0])
-            last_action.append(len(self.at_index(last_action)["cases"][-1]) - 2)
-        return last_action
+    def index_of(self, action):
+        item_not_in_path = ItemNotInPath()
+
+        def _recurse_find_index(graph, index_under_construction):
+
+            if action in graph:
+                index_under_construction.append(graph.index(action))
+                return index_under_construction
+
+            else:
+                for act_index in range(len(graph)):
+                    act = graph[act_index]
+                    index_under_construction.append(act_index)
+
+                    if type(act) is list:
+                        deeper_index = _recurse_find_index(act, copy(index_under_construction))
+                        if deeper_index is not item_not_in_path:
+                            return deeper_index
+
+                    if type(act) is dict:
+                        for case_list in act["cases"]:
+                            index_under_construction.append(case_list[0])
+                            deeper_index = _recurse_find_index(case_list[1:], copy(index_under_construction))
+                            if deeper_index is not item_not_in_path:
+                                return deeper_index
+
+                            index_under_construction.pop()  # Wasn't at this case, move to the next one.
+
+                    index_under_construction.pop()  # wasn't at this index, move to the next one.
+
+            # Never returned with an index, so can't be in path.
+            return item_not_in_path
+
+        return _recurse_find_index(self.graph, [])
+
+
 
     @cascade
     def then(self, next_action):
 
-        next_action = convert_functions_to_actions(next_action)
+        next_action = convert_to_actions(next_action)
 
         if not self.__currently_building_a_decision:
             self.graph.append(next_action)
@@ -71,14 +104,14 @@ class WorkflowGraph(object):
             # Without making a copy, Python actually makes the value in the dictionary here
             # a reference to self.action_currently_executing.
             # I have no idea why, it's _bananas_, but it took me a solid day and a half to debug. Don't remove the copy!
-            self.action_currently_executing = copy(self.label_action_mapping[label])
+            self.action_currently_executing = self.index_of(self.label_action_mapping[label])
             self.just_jumped = True
             return
         self.then(move_step)
 
     @cascade
     def call_that_step(self, label):
-        self.label_action_mapping[label] = self.__last_action_index()
+        self.label_action_mapping[label] = self.__last_action_added
         pass
 
     # For code reuse, because we navigate the graph by index lots!
@@ -159,10 +192,13 @@ class WorkflowGraph(object):
         pass
 
 
-def convert_functions_to_actions(action):
+def convert_to_actions(action):
     # Convert functions to Actions
     if type(action) is FunctionType:
         action = Action(action)
+
+    if type(action) is WorkflowGraph:
+        action = action.graph
 
     # Any conversions necessary should have taken place by now.
     return action

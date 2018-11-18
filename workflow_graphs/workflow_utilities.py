@@ -69,6 +69,13 @@ class JoinNode(DummyAction):
     pass
 
 
+class ItemNotInPath:
+    '''
+    A sentinel for an item not appearing in a path we search, used in WorkflowGraph.index_of().
+    '''
+    pass
+
+
 class Idle(DummyAction):
     pass
 
