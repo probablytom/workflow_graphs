@@ -1,0 +1,6 @@
+[submodule "pydysofu"]
+	path = pydysofu
+	url = git@github.com:twsswt/pydysofu.git
+[submodule "asp"]
+	path = asp
+	url = git@github.com:probablytom/asp

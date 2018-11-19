@@ -2,6 +2,8 @@ import unittest
 from asp import AdviceBuilder
 from workflow_graphs import WorkflowGraph, End, anything_else, do_nothing
 from workflow_graphs.workflow_utilities import Action
+from copy import copy
+from pydysofu import duplicate_last_step, fuzz
 
 
 # Kipple that would live somewhere else in the final product
@@ -40,7 +42,7 @@ class TestBasicFlows(unittest.TestCase):
 
         ctx = dict()
         actor = dict()
-        flow.run_workflow(ctx, actor)
+        flow(ctx, actor)
 
         self.assertEqual(ctx["stored_value"], 6)
 
@@ -59,7 +61,7 @@ class TestBasicFlows(unittest.TestCase):
 
         ctx = dict()
         actor = dict()
-        flow.run_workflow(ctx, actor)
+        flow(ctx, actor)
 
         self.assertEqual(ctx["value_was_equal_to_2"], "yes!")
 
@@ -85,7 +87,7 @@ class TestBasicFlows(unittest.TestCase):
 
         ctx = dict()
         actor = dict()
-        flow.run_workflow(ctx, actor)
+        flow(ctx, actor)
 
         self.assertEqual(ctx["value_was_equal_to_5"], "yes!")
 
@@ -101,7 +103,7 @@ class TestBasicFlows(unittest.TestCase):
 
         ctx = dict()
         actor = dict()
-        flow.run_workflow(ctx, actor)
+        flow(ctx, actor)
 
         self.assertEqual(ctx["stored_value"], 3)
 
@@ -137,6 +139,52 @@ class TestWorkflowGraphMethods(unittest.TestCase):
         # [1, 1, 0, 1] because index should represent decision, case 1, enter subflow, second subflow step
         self.assertEqual(flow.index_of(action_to_find), [1, 1, 0, 1])
 
+
+class TestFuzzing(unittest.TestCase):
+    def test_asp_fuzzing(self):
+        # Skip the second action.
+        shared_context = {}
+        def skip_second_action(_, workflow, *args, **kwargs):
+            shared_context["missing action"] = (1, copy(workflow.graph)[1])
+            workflow.graph[1] = Action(do_nothing)
+            pass
+
+        def replace_missing_action(_, workflow, *args, **kwargs):
+            workflow.graph[shared_context["missing action"][0]] = shared_context["missing action"][1]
+            del shared_context["missing action"]
+
+        # A workflow to fuzz
+        flow = WorkflowGraph().begin_with(add_value_to_ctx(3)).then(add_one_to_value).then(End)
+
+        # TODO: Fix this so I can just call `flow()`, rather than `flow.run_workflow()`.
+        #     ^ This is tricky because __call__ doesn't seem to go through __get_attribute,
+        #       so ASP can't catch its lookup and weave.
+        builder = AdviceBuilder()
+        builder.add_prelude(flow.run_workflow, skip_second_action)
+        builder.add_encore(flow.run_workflow, replace_missing_action)
+        builder.apply()
+
+        # Run the flow-fuzzed workflow.
+        ctx, actor = dict(), dict()
+        flow.run_workflow(ctx, actor)
+
+        # If we did skip the second step, then the flow's context should contain 3 and not 4.
+        self.assertEqual(ctx["stored_value"], 3)
+
+    def test_pdsf_fuzzing(self):
+
+        @fuzz(duplicate_last_step)
+        def action_to_fuzz(ctx, actor, env):
+            ctx["val"] = 1
+            ctx["val"] += 1
+
+        # Set up the flow to fuzz
+        flow = WorkflowGraph().begin_with(action_to_fuzz).then(End)
+
+        ctx, actor = dict(), dict()
+        flow.run_workflow(ctx, actor)
+
+        self.assertTrue(ctx["val"] is 3)
 
 
 

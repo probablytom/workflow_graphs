@@ -14,6 +14,9 @@ class WorkflowGraph(object):
         self.label_action_mapping = {}
         self.decision_building_stack = list()
 
+    def run_workflow(self, *args, **kwargs):
+        self(*args, **kwargs)
+
     @property
     def __currently_building_a_decision(self):
         return len(self.decision_building_stack) is not 0
@@ -142,7 +145,7 @@ class WorkflowGraph(object):
 
         return graph
 
-    def run_workflow(self, ctx, actor):
+    def __call__(self, ctx, actor):
 
         self.action_currently_executing = [0]  # Begin at the beginning of the graph!
 
