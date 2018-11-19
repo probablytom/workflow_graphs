@@ -143,15 +143,8 @@ class TestWorkflowGraphMethods(unittest.TestCase):
 class TestFuzzing(unittest.TestCase):
     def test_asp_fuzzing(self):
         # Skip the second action.
-        shared_context = {}
         def skip_second_action(_, workflow, *args, **kwargs):
-            shared_context["missing action"] = (1, copy(workflow.graph)[1])
             workflow.graph[1] = Action(do_nothing)
-            pass
-
-        def replace_missing_action(_, workflow, *args, **kwargs):
-            workflow.graph[shared_context["missing action"][0]] = shared_context["missing action"][1]
-            del shared_context["missing action"]
 
         # A workflow to fuzz
         flow = WorkflowGraph().begin_with(add_value_to_ctx(3)).then(add_one_to_value).then(End)
@@ -161,7 +154,6 @@ class TestFuzzing(unittest.TestCase):
         #       so ASP can't catch its lookup and weave.
         builder = AdviceBuilder()
         builder.add_prelude(flow.run_workflow, skip_second_action)
-        builder.add_encore(flow.run_workflow, replace_missing_action)
         builder.apply()
 
         # Run the flow-fuzzed workflow.
