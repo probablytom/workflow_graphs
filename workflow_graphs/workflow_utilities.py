@@ -1,3 +1,5 @@
+import functools
+
 def cascade(method):
     # Implements cascading method calls as a decorator.
     def _(*args, **kwargs):
@@ -102,3 +104,8 @@ class CouldNotParseIndexException(Exception):
 class EqualToAnything(object):
     def __eq__(self, other):
         return True
+
+
+def partial_apply(*args):
+    return functools.partial(*args)
+

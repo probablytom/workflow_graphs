@@ -4,3 +4,6 @@
 [submodule "asp"]
 	path = asp
 	url = git@github.com:probablytom/asp
+[submodule "theatre_ag"]
+	path = theatre_ag
+	url = git@github.com:twsswt/theatre_ag

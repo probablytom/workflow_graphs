@@ -2,7 +2,6 @@ from .workflow_utilities import *
 from types import FunctionType
 from copy import copy
 
-
 class WorkflowGraph(object):
 
     environment = dict()  # An environment global to all workflows.
@@ -145,12 +144,15 @@ class WorkflowGraph(object):
 
         return graph
 
-    def __call__(self, ctx, actor):
+    def __call__(self, context, actor):
+        [act(ctx, _actor, env) for act, ctx, _actor, env in self.yield_actions(context, actor)]
+
+    def yield_actions(self, ctx, actor):
 
         self.action_currently_executing = [0]  # Begin at the beginning of the graph!
 
         # Keep traversing while we haven't reached the end of the graph
-        while self.action_currently_executing[0] < len(self.graph)\
+        while self.action_currently_executing[0] < len(self.graph) \
                 and type(self.at_index(self.action_currently_executing)) is not EndNode:
 
             curr_action = self.at_index(self.action_currently_executing)
@@ -175,7 +177,7 @@ class WorkflowGraph(object):
                 curr_action = self.at_index(self.action_currently_executing)
 
             # Execute the action found. "graph" should now be an Action node.
-            curr_action(ctx, actor, WorkflowGraph.environment)
+            yield curr_action, ctx, actor, WorkflowGraph.environment
 
             # If we haven't just jumped, then increment the index.
             if not self.just_jumped:
@@ -192,7 +194,9 @@ class WorkflowGraph(object):
             else:
                 self.just_jumped = False  # reset the flag
 
-        pass
+        # Finish with the end action we broke on earlier
+        end_action = self.at_index(self.action_currently_executing)
+        yield end_action, ctx, actor, WorkflowGraph.environment
 
 
 def convert_to_actions(action):
@@ -205,6 +209,7 @@ def convert_to_actions(action):
 
     # Any conversions necessary should have taken place by now.
     return action
+
 
 End = EndNode()
 do_nothing = Idle()

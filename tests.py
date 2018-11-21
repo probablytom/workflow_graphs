@@ -2,9 +2,16 @@ import unittest
 from asp import AdviceBuilder
 from workflow_graphs import WorkflowGraph, End, anything_else, do_nothing
 from workflow_graphs.workflow_utilities import Action
-from copy import copy
+from workflow_graphs import GraphActor, SynchronizingClock, default_cost
 from pydysofu import duplicate_last_step, fuzz
 
+@default_cost(1)
+def set_actor_value(ctx, actor, env):
+    actor["val"] = 1
+
+@default_cost(1)
+def increment_actor_value(ctx, actor, env):
+    actor["val"] += 1
 
 # Kipple that would live somewhere else in the final product
 def add_value_to_ctx(val=5):
@@ -179,4 +186,31 @@ class TestFuzzing(unittest.TestCase):
         self.assertTrue(ctx["val"] is 3)
 
 
+class TestTheatreIntegrations(unittest.TestCase):
+    def test_yielding_actions(self):
 
+        flow = WorkflowGraph()
+        action_1 = Action(add_value_to_ctx(1))
+        action_2 = Action(add_one_to_value)
+        flow.begin_with(action_1).then(action_2).then(End)
+
+        ctx, actor = dict(), dict()
+        actions_yielded = []
+        for act in flow.yield_actions(ctx, actor):
+            actions_yielded.append(act[0])
+
+        self.assertEqual(actions_yielded, [action_1, action_2, End])
+
+    def test_theatre_actor_workflow_model(self):
+        flow1 = WorkflowGraph().begin_with(set_actor_value).then(End)
+        flow2 = WorkflowGraph().begin_with(increment_actor_value).then(End)
+
+        clock = SynchronizingClock(max_ticks=2)
+        actor = GraphActor("test_actor", clock)
+
+        actor.send_message(actor, flow1)
+        actor.send_message(actor, flow2)
+
+        actor.perform()
+
+        self.assertEqual(actor.actor_state["val"], 2)
