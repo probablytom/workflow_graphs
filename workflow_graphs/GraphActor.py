@@ -1,8 +1,10 @@
-from theatre_ag import Actor, Cast, allocate_workflow_to, Task
+from theatre_ag import Actor, Cast, allocate_workflow_to, Task, Empty, OutOfTurnsException
 from workflow_utilities import EndNode
 from Queue import Queue
 from functools import partial
 from workflow import WorkflowGraph, End
+import sys
+import traceback
 
 
 class MessagingActor(Actor):
@@ -36,7 +38,7 @@ class TeamMember(object):
     To be used as a Mixin; see GraphActor for an example.
     '''
     def __init__(self, *args, **kwargs):
-        super(TeamMember, self).__init__()
+        super(TeamMember, self).__init__(*args, **kwargs)
         self.departments = []
 
 
@@ -68,6 +70,8 @@ class GraphActor(MessagingActor, TeamMember):
     def get_next_workflow(self):
         
         self.context = {}  # A new context for every workflow invocation
+
+        flow = None
         
         # Anything handed to us personally?
         if not self.inbox.empty():
@@ -91,16 +95,20 @@ class GraphActor(MessagingActor, TeamMember):
                     # If the flow's not a graph, it's some sort of signal, so resolve it from our mapping.
                     if not isinstance(flow, WorkflowGraph):
                         flow = self.signal_flow_mapping[flow]
-                        
+
+        if flow is None:
+            flow = self.idle_flow
+
         self.current_workflow = flow
         self.action_generator = self.current_workflow.yield_actions(self.context, self.actor_state)
 
     def get_next_task(self):
         if type(self.current_task) is EndNode or type(self.current_workflow) is not WorkflowGraph:
             self.get_next_workflow()
-            
-        next_action_and_vars = self.action_generator.next()
-        if isinstance(next_action_and_vars, StopIteration):
+
+        try:
+            next_action_and_vars = self.action_generator.next()
+        except StopIteration:
             self.get_next_workflow()
             next_action_and_vars = self.action_generator.next()
             
