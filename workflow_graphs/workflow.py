@@ -152,7 +152,7 @@ class WorkflowGraph(object):
         self.action_currently_executing = [0]  # Begin at the beginning of the graph!
 
         # Keep traversing while we haven't reached the end of the graph
-        while self.action_currently_executing[0] < len(self.graph) \
+        while len(self.action_currently_executing) > 0 \
                 and self.at_index(self.action_currently_executing) is not End:
 
             curr_action = self.at_index(self.action_currently_executing)
@@ -183,20 +183,24 @@ class WorkflowGraph(object):
             if not self.just_jumped:
                 self.action_currently_executing[-1] += 1
 
-                finished_yet = lambda: type(self.at_index(self.action_currently_executing)) is not CouldNotParseIndexException
+                def finished_yet():
+                    return type(self.at_index(self.action_currently_executing)) is not CouldNotParseIndexException \
+                           or len(self.action_currently_executing) is 0
 
                 while not finished_yet():
                     self.action_currently_executing.pop()
-                    if type(self.action_currently_executing[-1]) is not int:
-                        self.action_currently_executing.pop()
-                    self.action_currently_executing[-1] += 1
+                    if len(self.action_currently_executing) is not 0:
+                        if type(self.action_currently_executing[-1]) is not int:
+                            self.action_currently_executing.pop()
+                        self.action_currently_executing[-1] += 1
 
             else:
                 self.just_jumped = False  # reset the flag
 
-        # Finish with the end action we broke on earlier
-        end_action = self.at_index(self.action_currently_executing)
-        yield end_action, ctx, actor, WorkflowGraph.environment
+        # Stop if we've reached the end.
+        if len(self.action_currently_executing) is 0:
+            raise StopIteration
+
 
 
 def convert_to_actions(action):

@@ -1,10 +1,31 @@
 import unittest
+from functools import partial
 from asp import AdviceBuilder
 from workflow_graphs import WorkflowGraph, End, anything_else, do_nothing
-from workflow_graphs import Actor
+from workflow_graphs import Actor, Department
 from au import Clock
-from theatre_ag import SynchronizingClock, default_cost
+from theatre_ag import default_cost
 from pydysofu import duplicate_last_step, fuzz
+
+@default_cost(1)
+def write_to_env(key, val):
+    def _write_to_env(ctx, actor, env):
+        env[key] = val
+    return _write_to_env
+
+def append_to_env(key, val):
+    '''
+    assumes a string val.
+    :param key:
+    :param val:
+    :return:
+    '''
+    @default_cost(1)
+    def _append_to_env(ctx, actor, env):
+        if key not in env.keys():
+            env[key] = ""
+        env[key] += val
+    return _append_to_env
 
 @default_cost(1)
 def set_actor_value(ctx, actor, env):
@@ -206,4 +227,42 @@ class TestAUTimingModel(unittest.TestCase):
 
         # Did the workflow execute successfully?
         self.assertEqual(actor.actor_state["val"], 2)
+
+    def test_multiple_actor_ping_pong(self):
+
+        # Time to sync against
+        clock = Clock(max_ticks=5)
+
+        # Set up actors
+        a_ping = Actor(clock, name="ping")
+        a_pong = Actor(clock, name="pong")
+
+        # There's gotta be an easier way.
+        def send_message(other_actor, message):
+            @default_cost(1)
+            def _send_message(ctx, actor, env):
+                other_actor.recieve_message(message)
+            return _send_message
+
+        ping_flow = WorkflowGraph()\
+            .begin_with(append_to_env("message", 'ping ')) \
+            .then(send_message(a_pong, "PONG"))
+
+        pong_flow = WorkflowGraph()\
+            .begin_with(append_to_env("message", "pong "))\
+            .then(send_message(a_ping, "PING"))
+
+        # Allocate workflows
+        a_ping.on_signal_process_workflow("PING", ping_flow)
+        a_pong.on_signal_process_workflow("PONG", pong_flow)
+        a_ping.recieve_message("PING")  # Something to get the ball rolling
+
+        # BEGIN TIME ITSELF
+        clock.tick()
+
+        self.assertTrue(WorkflowGraph.environment["message"] == "ping pong ping pong ")
+
+
+    def test_department_ping_pong(self):
+        pass
 
