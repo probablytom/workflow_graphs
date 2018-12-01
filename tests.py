@@ -1,8 +1,9 @@
 import unittest
 from asp import AdviceBuilder
 from workflow_graphs import WorkflowGraph, End, anything_else, do_nothing
-from workflow_graphs.workflow_utilities import Action
-from workflow_graphs import GraphActor, SynchronizingClock, default_cost
+from workflow_graphs import Actor
+from au import Clock
+from theatre_ag import SynchronizingClock, default_cost
 from pydysofu import duplicate_last_step, fuzz
 
 @default_cost(1)
@@ -120,19 +121,18 @@ class TestWorkflowGraphMethods(unittest.TestCase):
     def test_simple_index_of(self):
 
         flow = WorkflowGraph()
-        add_one_action = Action(add_one_to_value)
         flow.begin_with(add_value_to_ctx(1)) \
-            .then(add_one_action) \
+            .then(add_one_to_value) \
             .then(End)
 
-        self.assertEqual(flow.index_of(add_one_action), [1])
+        self.assertEqual(flow.index_of(add_one_to_value), [1])
 
     def test_complex_index_of(self):
 
-        action_to_find = Action(add_one_to_value)
+        action_to_find = add_value_to_ctx(2)
 
         subflow = WorkflowGraph()
-        subflow.begin_with(add_one_to_value).then(action_to_find)
+        subflow.begin_with(add_value_to_ctx(1)).then(action_to_find)
 
         flow = WorkflowGraph()
         flow.begin_with(add_value_to_ctx(1)) \
@@ -151,7 +151,7 @@ class TestFuzzing(unittest.TestCase):
     def test_asp_fuzzing(self):
         # Skip the second action.
         def skip_second_action(_, workflow, *args, **kwargs):
-            workflow.graph[1] = Action(do_nothing)
+            workflow.graph[1] = do_nothing
 
         # A workflow to fuzz
         flow = WorkflowGraph().begin_with(add_value_to_ctx(3)).then(add_one_to_value).then(End)
@@ -186,31 +186,24 @@ class TestFuzzing(unittest.TestCase):
         self.assertTrue(ctx["val"] is 3)
 
 
-class TestTheatreIntegrations(unittest.TestCase):
-    def test_yielding_actions(self):
-
+class TestAUTimingModel(unittest.TestCase):
+    def test_single_actor_simple_workflow(self):
+        # Construct a flow
         flow = WorkflowGraph()
-        action_1 = Action(add_value_to_ctx(1))
-        action_2 = Action(add_one_to_value)
-        flow.begin_with(action_1).then(action_2).then(End)
+        flow.begin_with(set_actor_value)
+        flow.then(increment_actor_value)
+        flow.then(End)
 
-        ctx, actor = dict(), dict()
-        actions_yielded = []
-        for act in flow.yield_actions(ctx, actor):
-            actions_yielded.append(act[0])
+        # Make a clock for syncing actors
+        clock = Clock(max_ticks=5)
 
-        self.assertEqual(actions_yielded, [action_1, action_2, End])
+        # Set up actors to execute flow against clock
+        actor = Actor(clock)
+        actor.recieve_message(flow)
 
-    def test_theatre_actor_workflow_model(self):
-        flow1 = WorkflowGraph().begin_with(set_actor_value).then(End)
-        flow2 = WorkflowGraph().begin_with(increment_actor_value).then(End)
+        # BEGIN TIME ITSELF
+        clock.tick()
 
-        clock = SynchronizingClock(max_ticks=2)
-        actor = GraphActor("test_actor", clock)
-
-        actor.send_message(actor, flow1)
-        actor.send_message(actor, flow2)
-
-        actor.perform()
-
+        # Did the workflow execute successfully?
         self.assertEqual(actor.actor_state["val"], 2)
+

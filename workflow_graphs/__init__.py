@@ -1,3 +1,3 @@
-from workflow import WorkflowGraph, End, anything_else, do_nothing
-from GraphActor import GraphActor
-from theatre_ag import SynchronizingClock, default_cost
+from workflow import WorkflowGraph
+from workflow_utilities import anything_else, do_nothing, End
+from GraphActor import Actor

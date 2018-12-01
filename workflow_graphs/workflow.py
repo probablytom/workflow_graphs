@@ -153,12 +153,12 @@ class WorkflowGraph(object):
 
         # Keep traversing while we haven't reached the end of the graph
         while self.action_currently_executing[0] < len(self.graph) \
-                and type(self.at_index(self.action_currently_executing)) is not EndNode:
+                and self.at_index(self.action_currently_executing) is not End:
 
             curr_action = self.at_index(self.action_currently_executing)
 
             # If we've got to a decision or a subworkflow, resolve so we end up at an Action again.
-            while type(curr_action) is not Action:
+            while type(curr_action) is not FunctionType:
 
                 if type(curr_action) is list:
                     self.action_currently_executing.append(0)
@@ -200,10 +200,7 @@ class WorkflowGraph(object):
 
 
 def convert_to_actions(action):
-    # Convert functions to Actions
-    if type(action) is FunctionType:
-        action = Action(action)
-
+    # Convert WorkflowGraphs to their list-representation, which is a valid action
     if type(action) is WorkflowGraph:
         action = action.graph
 
@@ -211,7 +208,4 @@ def convert_to_actions(action):
     return action
 
 
-End = EndNode()
-do_nothing = Idle()
 anything_else = EqualToAnything()
-do_nothing = Idle()

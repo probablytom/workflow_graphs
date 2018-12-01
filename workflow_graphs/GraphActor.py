@@ -1,13 +1,13 @@
-from theatre_ag import Actor, Cast, allocate_workflow_to, Task, Empty, OutOfTurnsException
-from workflow_utilities import EndNode
+from theatre_ag import Cast, allocate_workflow_to, Task, Empty, OutOfTurnsException
+from theatre_ag import Actor as TheatreActor
 from Queue import Queue
-from functools import partial
-from workflow import WorkflowGraph, End
+from au import construct_task
+from workflow import WorkflowGraph, End, do_nothing
 import sys
 import traceback
 
 
-class MessagingActor(Actor):
+class MessagingActor(TheatreActor):
     def __init__(self, *args, **kwargs):
         self.inbox = Queue()
         super(MessagingActor, self).__init__(*args, **kwargs)
@@ -50,7 +50,7 @@ class Department(Cast):
     def add_member(self, actor):
         super(Department, self).add_member(actor)
         actor.departments.append(self)
-
+        
 
 class GraphActor(MessagingActor, TeamMember):
     
@@ -103,18 +103,21 @@ class GraphActor(MessagingActor, TeamMember):
         self.action_generator = self.current_workflow.yield_actions(self.context, self.actor_state)
 
     def get_next_task(self):
-        if type(self.current_task) is EndNode or type(self.current_workflow) is not WorkflowGraph:
+        if self.current_task is not End or type(self.current_workflow) is not WorkflowGraph:
             self.get_next_workflow()
 
         try:
-            next_action_and_vars = self.action_generator.next()
+            act, ctx, actor, env = self.action_generator.next()
         except StopIteration:
             self.get_next_workflow()
-            next_action_and_vars = self.action_generator.next()
+            act, ctx, actor, env = self.action_generator.next()
             
+        task = construct_task(act)
 
         # Equivalent of a LISP `apply` of Python's Partial to the next action, context, actor state and env.
-        return partial(*next_action_and_vars)
+        def forced_partial():
+            return act(ctx, actor, env)
+        return forced_partial
 
     def perform(self):
         '''
@@ -150,3 +153,93 @@ class GraphActor(MessagingActor, TeamMember):
         # Ensure that clock can proceed for other listeners.
         self.clock.remove_tick_listener(self)
         self.waiting_for_tick.set()
+
+
+class Actor(TeamMember):
+    def __init__(self, clock, *args, **kwargs):
+        super(Actor, self).__init__(*args, **kwargs)
+        
+        self.clock = clock
+        clock.add_listener(self)
+        self.signal_flow_mapping = dict()
+        self.actor_state = dict()
+        self.idle_flow = WorkflowGraph().begin_with(do_nothing).then(End)
+        self.inbox = Queue()
+        self.context = None
+        self.action_generator = None
+        self.current_workflow = None
+        self.current_task = None
+        
+    def on_signal_process_workflow(self, signal, workflow):
+        self.signal_flow_mapping[signal] = workflow
+
+    def get_next_workflow(self):
+
+        self.context = {}  # A new context for every workflow invocation
+
+        flow = None
+
+        # Anything handed to us personally?
+        if not self.inbox.empty():
+            flow = self.inbox.get(block=True)
+
+            # If the flow's not a graph, it's some sort of signal, so resolve it from our mapping.
+            if not isinstance(flow, WorkflowGraph):
+                flow = self.signal_flow_mapping[flow]
+
+        else:
+            found_work = False
+
+            for dept in self.departments:
+                if not found_work and not dept.department_work_queue.empty(block=True):
+
+                    found_work = True
+
+                    flow = dept.department_work_queue.get(block=True)
+
+                    # If the flow's not a graph, it's some sort of signal, so resolve it from our mapping.
+                    if not isinstance(flow, WorkflowGraph):
+                        flow = self.signal_flow_mapping[flow]
+
+        if flow is None:
+            flow = self.idle_flow
+
+        self.current_workflow = flow
+        self.action_generator = self.current_workflow.yield_actions(self.context, self.actor_state)
+
+    def get_next_task(self):
+        '''
+        Gets the next task (and the associated arguments for it) from the WorkflowGraph being processed.
+        :return: 
+        '''
+        
+        if self.current_task is not End or type(self.current_workflow) is not WorkflowGraph:
+            self.get_next_workflow()
+            
+        elif self.current_task.completed:
+            return self.current_task, self.context, self.actor_state, self.current_workflow.environment
+
+
+        try:
+            act, ctx, actor, env = self.action_generator.next()
+        except StopIteration:
+            self.get_next_workflow()
+            act, ctx, actor, env = self.action_generator.next()
+
+        task = construct_task(act)
+        self.current_task = task
+
+        return task, ctx, actor, env
+    
+    def recieve_message(self, message):
+        self.inbox.put(message)
+
+    def perform(self):
+        while True:
+            task, ctx, actor, env = self.get_next_task()
+            # We move on to the next task once task.invocations is 0 after having been run already (because it'll be reset)
+            completed = False
+            while not completed:
+                yield task(ctx, actor, env)
+                completed = task.invocations == 0
+

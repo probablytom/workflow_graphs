@@ -7,3 +7,6 @@
 [submodule "theatre_ag"]
 	path = theatre_ag
 	url = git@github.com:twsswt/theatre_ag
+[submodule "au"]
+	path = au
+	url = git@github.com:probablytom/theatre_au.git
