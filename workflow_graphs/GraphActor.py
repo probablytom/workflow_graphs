@@ -7,16 +7,20 @@ import sys
 import traceback
 
 
-class MessagingActor(TheatreActor):
+class MessagingActor(object):
     def __init__(self, *args, **kwargs):
         self.inbox = Queue()
         super(MessagingActor, self).__init__(*args, **kwargs)
 
-    def send_message(self, other_actor, message):
-        if isinstance(other_actor, Department):
-            other_actor.department_work_queue.put(message, block=True)
-        else:
-            other_actor.inbox.put(message, block=True)
+    def send_message_action(self, other_actor, message):
+        def send_message(ctx, actor, env):
+            if isinstance(other_actor, Department):
+                other_actor.department_work_queue.put(message, block=True)
+            else:
+                other_actor.inbox.put(message, block=True)
+
+        return send_message
+
 
 
 class Signal(object):
@@ -42,15 +46,16 @@ class TeamMember(object):
         self.departments = []
 
 
-class Department(Cast):
+class Department(object):
     def __init__(self, *args, **kwargs):
         self.department_work_queue = Queue()
-        super(Department, self).__init__(*args, **kwargs)
 
     def add_member(self, actor):
-        super(Department, self).add_member(actor)
         actor.departments.append(self)
-        
+
+    def recieve_message(self, message):
+        self.department_work_queue.put(message)
+
 
 class Actor(TeamMember):
     def __init__(self, clock, name=None, *args, **kwargs):
@@ -90,7 +95,7 @@ class Actor(TeamMember):
             found_work = False
 
             for dept in self.departments:
-                if not found_work and not dept.department_work_queue.empty(block=True):
+                if not found_work and not dept.department_work_queue.empty():
 
                     found_work = True
 

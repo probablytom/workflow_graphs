@@ -264,5 +264,42 @@ class TestAUTimingModel(unittest.TestCase):
 
 
     def test_department_ping_pong(self):
-        pass
+
+        # Time to sync against
+        clock = Clock(max_ticks=5)
+
+        # Set up actors
+        a_ping = Actor(clock, name="ping")
+        a_pong = Actor(clock, name="pong")
+
+        ping_dept = Department()
+        ping_dept.add_member(a_ping)
+
+        pong_dept = Department()
+        pong_dept.add_member(a_pong)
+
+        # There's gotta be an easier way.
+        def send_message_to_dept(other_actor, message):
+            @default_cost(1)
+            def _send_message(ctx, actor, env):
+                other_actor.recieve_message(message)
+            return _send_message
+
+        ping_flow = WorkflowGraph() \
+            .begin_with(append_to_env("message", 'ping ')) \
+            .then(send_message_to_dept(pong_dept, "PONG"))
+
+        pong_flow = WorkflowGraph() \
+            .begin_with(append_to_env("message", "pong ")) \
+            .then(send_message_to_dept(ping_dept, "PING"))
+
+        # Allocate workflows
+        a_ping.on_signal_process_workflow("PING", ping_flow)
+        a_pong.on_signal_process_workflow("PONG", pong_flow)
+        a_ping.recieve_message("PING")  # Something to get the ball rolling
+
+        # BEGIN TIME ITSELF
+        clock.tick()
+
+        self.assertTrue(WorkflowGraph.environment["message"] == "ping pong ping pong ")
 
