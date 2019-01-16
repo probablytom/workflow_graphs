@@ -1,5 +1,5 @@
 import functools
-from theatre_ag import default_cost
+from au import default_cost
 
 def cascade(method):
     # Implements cascading method calls as a decorator.

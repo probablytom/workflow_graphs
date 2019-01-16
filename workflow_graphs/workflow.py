@@ -69,8 +69,6 @@ class WorkflowGraph(object):
 
         return _recurse_find_index(self.graph, [])
 
-
-
     @cascade
     def then(self, next_action):
 

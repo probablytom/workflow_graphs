@@ -1,17 +1,25 @@
 import unittest
-from functools import partial
 from asp import AdviceBuilder
 from workflow_graphs import WorkflowGraph, End, anything_else, do_nothing
 from workflow_graphs import Actor, Department
-from au import Clock
-from theatre_ag import default_cost
+from au import Clock, default_cost
 from pydysofu import duplicate_last_step, fuzz
 
-@default_cost(1)
+
+# There's gotta be an easier way.
+def send_message(other_actor, message):
+    @default_cost(1)
+    def _send_message(ctx, actor, env):
+        other_actor.recieve_message(message)
+    return _send_message
+
+
 def write_to_env(key, val):
+    @default_cost(1)
     def _write_to_env(ctx, actor, env):
         env[key] = val
     return _write_to_env
+
 
 def append_to_env(key, val):
     '''
@@ -27,13 +35,16 @@ def append_to_env(key, val):
         env[key] += val
     return _append_to_env
 
+
 @default_cost(1)
 def set_actor_value(ctx, actor, env):
     actor["val"] = 1
 
+
 @default_cost(1)
 def increment_actor_value(ctx, actor, env):
     actor["val"] += 1
+
 
 # Kipple that would live somewhere else in the final product
 def add_value_to_ctx(val=5):
@@ -237,13 +248,6 @@ class TestAUTimingModel(unittest.TestCase):
         a_ping = Actor(clock, name="ping")
         a_pong = Actor(clock, name="pong")
 
-        # There's gotta be an easier way.
-        def send_message(other_actor, message):
-            @default_cost(1)
-            def _send_message(ctx, actor, env):
-                other_actor.recieve_message(message)
-            return _send_message
-
         ping_flow = WorkflowGraph()\
             .begin_with(append_to_env("message", 'ping ')) \
             .then(send_message(a_pong, "PONG"))
@@ -278,20 +282,13 @@ class TestAUTimingModel(unittest.TestCase):
         pong_dept = Department()
         pong_dept.add_member(a_pong)
 
-        # There's gotta be an easier way.
-        def send_message_to_dept(other_actor, message):
-            @default_cost(1)
-            def _send_message(ctx, actor, env):
-                other_actor.recieve_message(message)
-            return _send_message
-
         ping_flow = WorkflowGraph() \
             .begin_with(append_to_env("message", 'ping ')) \
-            .then(send_message_to_dept(pong_dept, "PONG"))
+            .then(send_message(pong_dept, "PONG"))
 
         pong_flow = WorkflowGraph() \
             .begin_with(append_to_env("message", "pong ")) \
-            .then(send_message_to_dept(ping_dept, "PING"))
+            .then(send_message(ping_dept, "PING"))
 
         # Allocate workflows
         a_ping.on_signal_process_workflow("PING", ping_flow)

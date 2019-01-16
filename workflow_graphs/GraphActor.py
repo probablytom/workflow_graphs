@@ -1,10 +1,6 @@
-from theatre_ag import Cast, allocate_workflow_to, Task, Empty, OutOfTurnsException
-from theatre_ag import Actor as TheatreActor
 from Queue import Queue
 from au import construct_task
 from workflow import WorkflowGraph, End, do_nothing
-import sys
-import traceback
 
 
 class MessagingActor(object):
@@ -65,6 +61,7 @@ class Actor(TeamMember):
         clock.add_listener(self)
         self.signal_flow_mapping = dict()
         self.actor_state = dict()
+        self.actor_state["self"] = self
         self.idle_flow = WorkflowGraph().begin_with(do_nothing).then(End)
         self.inbox = Queue()
         self.context = None
@@ -79,7 +76,7 @@ class Actor(TeamMember):
 
     def get_next_workflow(self):
 
-        self.context = {}  # A new context for every workflow invocation
+        self.context = {"incoming message": None}  # A new context for every workflow invocation
 
         flow = None
 
@@ -89,6 +86,7 @@ class Actor(TeamMember):
 
             # If the flow's not a graph, it's some sort of signal, so resolve it from our mapping.
             if not isinstance(flow, WorkflowGraph):
+                self.context = {"incoming message": flow}
                 flow = self.signal_flow_mapping[flow]
 
         else:
@@ -103,6 +101,7 @@ class Actor(TeamMember):
 
                     # If the flow's not a graph, it's some sort of signal, so resolve it from our mapping.
                     if not isinstance(flow, WorkflowGraph):
+                        self.context = {"incoming message": flow}
                         flow = self.signal_flow_mapping[flow]
 
         if flow is None:
